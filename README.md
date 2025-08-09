@@ -1,65 +1,76 @@
-# ardalive README
+# ArdaLive
 
-This is the README for your extension "ardalive". After writing up a brief description, we recommend including the following sections.
+**Lightning-fast HTML live preview** in your browser while editing in VS Code.  
+No full page reloads. No extra tooling. Just type and watch your page update instantly.
 
-## Features
-
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
-
-For example if there is an image subfolder under your extension project workspace:
-
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+CSS hot-swap for linked stylesheets is included as a bonus.
 
 ---
 
-## Working with Markdown
+## ✨ Features
 
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
+- **Live HTML preview** — diffs and updates `<body>` in place (keeps scroll, focus, JS state).
+- **CSS hot-swap** — linked `.css` files are swapped via blob URLs without a flash.
+- Works with plain HTML/CSS, no frameworks required.
+- Local HTTP + WebSocket server, auto-starts with VS Code.
+- Status indicator in the VS Code status bar.
+- MIT licensed, includes [morphdom](https://github.com/patrick-steele-idem/morphdom).
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
+---
 
-## For more information
+## 🚀 Getting Started
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+1. Install the extension from the VS Code Marketplace.  
+2. Open your project folder in VS Code.  
+3. Check the **ArdaLive** status bar item for the local preview URL.  
+4. Open your browser to `http://localhost:<port>`  
+   - If you open the root, you’ll see the init page.  
+   - You can also open specific `.html` files directly.
 
-**Enjoy!**
+Start editing your `.html` file — changes to the `<body>` appear instantly in the browser.
+
+---
+
+## 🛠 How It Works
+
+- A lightweight client script connects to the ArdaLive WebSocket server.
+- When you edit an HTML file, only the `<body>` content is sent to the browser.
+- The browser uses **morphdom** to patch the live DOM in place.
+- When you edit a linked CSS file, the corresponding `<link>` element is hot-swapped with a blob URL.
+
+---
+
+## 📦 Configuration
+
+You can change the preview port in settings:
+
+| Setting            | Description                         | Default |
+|--------------------|-------------------------------------|---------|
+| `ardaLive.port`    | Preferred HTTP preview port         | 8242    |
+
+---
+
+## 📋 Notes & Limitations
+
+- HTML live preview is the primary feature.
+- CSS updates work **only** for `<link rel="stylesheet">` tags pointing to local files.
+- Inline `<style>` tags in `<head>` are not updated (planned for a future release).
+- Runs on `localhost` only — no remote connections.
+- If your HTML has multiple `<body>` tags (please don’t 😏), only the first is updated.
+
+---
+
+## 📅 Roadmap
+
+- Live updates for inline `<style>` tags.
+- `<head>` diff for meta/script/link changes.
+- Optional multi-client sync (scroll, form state).
+
+---
+
+## 📜 License
+
+- **ArdaLive** © 2025 Thomas Webb / Tominko Ltd — [MIT License](LICENSE)
+- Includes **morphdom** © 2014-2023 Patrick Steele-Idem — MIT License
+
+---
