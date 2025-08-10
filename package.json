@@ -14,6 +14,7 @@
 		"onStartupFinished"
 	],
 	"main": "./extension.js",
+	"icon": "static/img/ardalive-icon-128.png",
 	"files": [
 		"extension.js",
 		"static/**",
