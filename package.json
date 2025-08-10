@@ -3,7 +3,7 @@
 	"displayName": "ArdaLive",
 	"publisher": "ThomasWebb",
 	"description": "Lightning-fast HTML live preview for VS Code (with CSS hot-swap).",
-	"version": "1.0.0",
+	"version": "1.0.2",
 	"engines": {
 		"vscode": "^1.101.0"
 	},
@@ -21,7 +21,8 @@
 		"README.md",
 		"LICENSE",
 		"CHANGELOG.md",
-		"package.json"
+		"package.json",
+		"node_modules/ws/**"
 	],
 	"contributes": {
 		"configuration": {
@@ -50,7 +51,7 @@
 		"eslint": "^9.25.1"
 	},
 	"dependencies": {
-		"ws": "^8.18.3"
+		"ws": "^8.18.0"
 	},
 	"repository": {
 		"type": "git",
