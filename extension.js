@@ -92,31 +92,7 @@ async function activate(context) {
 	context.subscriptions.push(statusBarItem);
 
 	// Scan workspace for HTML files and map their linked CSS
-	const files = await vscode.workspace.findFiles('**/*.html');
-
-	for (const file of files) {
-		let html;
-		try {
-			html = fs.readFileSync(file.path, 'utf8');
-		} catch {
-			continue;
-		}
-
-		FILES_VIEWS[file.path] = [];
-		FILES_WATCH[file.path] = file.path; // watch HTML itself
-
-		let baseDir = path.dirname(file.path);
-		let match;
-
-		while ((match = findCssLinksRe.exec(html)) !== null) {
-			let cssPath = match[1];
-			if (!cssPath.startsWith("/")) cssPath = "/" + cssPath;
-			cssPath = baseDir + cssPath;
-
-			FILES_VIEWS[file.path].push(cssPath);
-			FILES_WATCH[cssPath] = file.path; // watch CSS but map to HTML
-		}
-	}
+	await reScanFiles()
 
 	/* ---------------------------
 	   Changes detector
@@ -187,32 +163,49 @@ async function activate(context) {
 	/* ---------------------------
 	   HTTP server
 	--------------------------- */
-	const server = http.createServer((req, res) => {
+	const server = http.createServer(async (req, res) => {
 		res.setHeader('Connection', 'close');
 
 		const cookies = parseCookies(req.headers.cookie || '');
-		const referer = req.headers['referer'] || req.headers['referrer'];
+		let referer = req.headers['referer'] || req.headers['referrer'];
 		let url = req.url;
 
+		let basePath = staticPath
+
+		if (url.endsWith(".html")) {
+			referer = null
+		}
+
 		if (!referer) {
-			if (!FILES_VIEWS[url]) {
-				res.statusCode = 404;
-				return res.end('File not found');
-			}
+			await reScanFiles()
 			cookies['ArdaLive'] = null;
+			// Serve init HTML if root requested
+			if (url === "/") {
+				url = "/init.html"
+				res.setHeader('Set-Cookie',
+					`ArdaLive=${encodeURIComponent(staticPath)}; Path=/; HttpOnly; SameSite=Lax`
+				);
+			} else {
+				if (!FILES_VIEWS[url]) {
+					res.statusCode = 404;
+					return res.end('File not found');
+				}
+				basePath = path.dirname(url);
+				res.setHeader('Set-Cookie',
+					`ArdaLive=${encodeURIComponent(basePath)}; Path=/; HttpOnly; SameSite=Lax`
+				);
+			}
+		} else {
+			basePath = cookies['ArdaLive'];
 		}
 
-		let basePath = cookies['ArdaLive'];
-
-		if (!basePath) {
-			basePath = path.dirname(url) || staticPath;
-			res.setHeader('Set-Cookie',
-				`ArdaLive=${encodeURIComponent(basePath)}; Path=/; HttpOnly; SameSite=Lax`
-			);
+		// File list
+		if (url === "/fl.json") {
+			const fileList = JSON.stringify((await vscode.workspace.findFiles('**/*.html')).map(a => (a.path)));
+			res.setHeader('Content-Type', 'application/json; charset=utf-8');
+			res.setHeader('Content-Length', Buffer.byteLength(fileList, 'utf8'));
+			return res.end(fileList);
 		}
-
-		// Serve init HTML if root requested
-		if (url === "/") url = "/init.html";
 
 		// Serve injected client script
 		if (url === "/_ardalive.js") {
@@ -267,6 +260,35 @@ function deactivate() { }
 /* ---------------------------
    Helper functions
 --------------------------- */
+async function reScanFiles() {
+	FILES_VIEWS = {};
+	FILES_WATCH = {}
+	const files = await vscode.workspace.findFiles('**/*.html');
+
+	for (const file of files) {
+		let html;
+		try {
+			html = fs.readFileSync(file.path, 'utf8');
+		} catch {
+			continue;
+		}
+
+		FILES_VIEWS[file.path] = [];
+		FILES_WATCH[file.path] = file.path; // watch HTML itself
+
+		let baseDir = path.dirname(file.path);
+		let match;
+
+		while ((match = findCssLinksRe.exec(html)) !== null) {
+			let cssPath = match[1];
+			if (!cssPath.startsWith("/")) cssPath = "/" + cssPath;
+			cssPath = baseDir + cssPath;
+
+			FILES_VIEWS[file.path].push(cssPath);
+			FILES_WATCH[cssPath] = file.path; // watch CSS but map to HTML
+		}
+	}
+}
 
 function randomHash(len = 8) {
 	return crypto.randomBytes(Math.ceil(len / 2))
