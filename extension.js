@@ -128,6 +128,7 @@ async function activate(context) {
 	const wss = new WebSocket.Server({ host: '127.0.0.1', port: PORT_WS });
 
 	wss.on('connection', (ws) => {
+		console.log("new connection")
 		let file = null;
 		const hash = randomHash();
 
@@ -157,6 +158,9 @@ async function activate(context) {
 		ws.on('close', () => {
 			WATCHERS = WATCHERS.filter(w => w.hash !== hash);
 			setStatus();
+		});
+		ws.on('error', (err) => {
+			console.error("WS Error: ", err)
 		});
 	});
 
@@ -261,8 +265,8 @@ function deactivate() { }
    Helper functions
 --------------------------- */
 async function reScanFiles() {
-	FILES_VIEWS = {};
-	FILES_WATCH = {}
+	const VIEWS = {}
+	const WATCH = {}
 	const files = await vscode.workspace.findFiles('**/*.html');
 
 	for (const file of files) {
@@ -273,8 +277,8 @@ async function reScanFiles() {
 			continue;
 		}
 
-		FILES_VIEWS[file.path] = [];
-		FILES_WATCH[file.path] = file.path; // watch HTML itself
+		VIEWS[file.path] = [];
+		WATCH[file.path] = file.path; // watch HTML itself
 
 		let baseDir = path.dirname(file.path);
 		let match;
@@ -284,10 +288,12 @@ async function reScanFiles() {
 			if (!cssPath.startsWith("/")) cssPath = "/" + cssPath;
 			cssPath = baseDir + cssPath;
 
-			FILES_VIEWS[file.path].push(cssPath);
-			FILES_WATCH[cssPath] = file.path; // watch CSS but map to HTML
+			VIEWS[file.path].push(cssPath);
+			WATCH[cssPath] = file.path; // watch CSS but map to HTML
 		}
 	}
+	FILES_VIEWS = { ...VIEWS }
+	FILES_WATCH = { ...WATCH }
 }
 
 function randomHash(len = 8) {

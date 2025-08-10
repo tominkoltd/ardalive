@@ -137,7 +137,7 @@ function handleServerError(err) {
 /**
  * WebSocket: Connection closed.
  */
-function handleServerClose() {
+function handleServerClose(e) {
 	if (pingInterval) clearInterval(pingInterval);
 	socket = null;
 	initialHash = null;
