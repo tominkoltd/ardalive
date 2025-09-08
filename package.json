@@ -1,9 +1,21 @@
 {
 	"name": "ardalive",
 	"displayName": "ArdaLive",
-	"publisher": "ThomasWebb",
-	"description": "Lightning-fast HTML live preview for VS Code (with CSS hot-swap).",
-	"version": "1.0.3",
+	"publisher": "tominkoltd",
+	"description": "Lightning-fast HTML live preview for VS Code (with CSS/INCLUDES hot-swap).",
+	"keywords": [
+		"live preview",
+		"html preview",
+		"css hot-reload",
+		"html live reload",
+		"web server",
+		"static server",
+		"morphdom",
+		"vscode live server",
+		"web development",
+		"live web preview"
+	],
+	"version": "1.2.0",
 	"engines": {
 		"vscode": "^1.101.0"
 	},

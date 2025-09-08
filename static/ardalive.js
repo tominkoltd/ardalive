@@ -1,149 +1,162 @@
-/*
- * ArdaLive - Live HTML Preview Module
- * 
- * Created by: Thomas Webb / Tominko Ltd.
- * License: MIT
- *
- * This module is part of the ArdaLive extension for VS Code,
- * enabling live preview of edited HTML/CSS directly in the browser.
- * It is part of the ArdaForm project.
- * 
- * Includes: morphdom (https://github.com/patrick-steele-idem/morphdom)
- *           Morphdom © 2014-2023 Patrick Steele-Idem, MIT License
- * 
- * For the brave: this code is meant for live DOM patching,
- * updating HTML and CSS in-place at lightning speed, without reloads.
- * Use at your own risk. It bites.
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is furnished
- * to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
- * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
-
 /* --------------------------------------------------------------------------
-   Live Preview Client
-   --------------------------------------------------------------------------
-   Handles WebSocket communication with the ArdaLive server and applies live
-   HTML or CSS updates using morphdom and a minimal CSS hot-swap mechanism.
--------------------------------------------------------------------------- */
+   ArdaLive – Live HTML Preview Client (Browser)
+   OS-agnostic: runs in the browser; works on Linux/macOS/Windows equally.
+   - Connects to the local ArdaLive server via WebSocket
+   - Tracks the current page, CSS <link> tags, and SSI includes
+   - Applies HTML diffs via morphdom, hot-swaps CSS via blob URLs
+   - Replaces SSI comments with an invisible <ssi-include> host (display:contents)
+---------------------------------------------------------------------------- */
 
-let socket = null;        // Active WebSocket connection
-let initialHash = null;   // Initial handshake hash from server
-let pingInterval = null;  // Interval timer for keep-alive pings
+let socket = null;        // Active WebSocket
+let pingInterval = null;  // Keep-alive timer
+const LINKS = Object.create(null); // Map: pathname -> { type, element?, data? }
 
-// Auto-connect when page is fully loaded
-window.addEventListener('load', connectToServer);
+// SSI include matcher (valid forms only). No 's' flag; use [\s\S] for Safari.
+const SSIre = /<!--#include\s+virtual=(["'])([\s\S]*?)\1[\s\S]*?-->/gi;
+
+// Connect once the page is fully loaded
+window.addEventListener('load', init);
 
 /**
- * Establishes a WebSocket connection to the local ArdaLive server.
+ * Initialize live preview:
+ *  - Expand SSI once to produce a consistent DOM
+ *  - Register styles and the main document in LINKS
+ *  - Open WebSocket to the local server
  */
-function connectToServer() {
-	if (socket) return; // Already connected or connecting
+function init() {
+	// Expand SSI placeholders once so morphdom works on a stable tree
+	const firstPass = loadSSI(document.body.innerHTML);
+	const newDoc = new DOMParser().parseFromString(firstPass, "text/html");
+	morphdom(document.body, newDoc.body);
 
-	socket = new WebSocket(`ws://localhost:${ws_port}`);
-	socket.onopen = handleServerOpen;
-	socket.onmessage = handleServerMessage;
-	socket.onerror = handleServerError;
-	socket.onclose = handleServerClose;
+	// Track <link rel="stylesheet"> for hot CSS swaps
+	for (const st of document.querySelectorAll('link[rel="stylesheet"]')) {
+		let href = st.href;
+		if (href.startsWith(location.origin)) href = href.substring(location.origin.length);
+		LINKS[href] = { type: 'STYLE', element: st, fileName: href };
+	}
+
+	// Track the main document by pathname
+	LINKS[location.pathname] = { type: 'ME', fileName: location.pathname };
+
+	// Build WS URL: ws/wss based on page protocol; handle file:// (no hostname)
+	const wsHost = location.hostname || '127.0.0.1';
+	socket = new WebSocket(`ws://${wsHost}:${ws_port}`);
+
+	socket.onopen = onConnectionOpen;
+	socket.onmessage = onServerMessage;
+	socket.onerror = onConnectionError;
+	socket.onclose = onConnectionClose;
 }
 
 /**
- * WebSocket: Connection opened.
+ * Replace SSI comments with invisible hosts and remember each include.
+ * Returns HTML with <ssi-include> wrappers injected (layout-neutral).
  */
-function handleServerOpen() {
+function loadSSI(srcTxt) {
+	const filesToWatch = [];
+
+	const ret = srcTxt.replace(SSIre, (_, __, rawPath) => {
+		// Normalize slashes, resolve against current page, use pathname as key
+		const normalized = rawPath.replace(/\\/g, '/');
+		const abs = new URL(normalized, location.href);
+		const fullPath = decodeURIComponent(abs.pathname);
+
+		filesToWatch.push(fullPath);
+
+		// Preserve any previously received content for this include
+		const existing = LINKS[fullPath];
+		let injected = "";
+		if (existing && existing.data) {
+			injected = existing.data;
+		} else {
+			LINKS[fullPath] = { type: 'SSI', data: null, fileName: fullPath };
+		}
+
+		// An invisible, persistent anchor that won’t affect layout
+		return `<ssi-include style="display:contents" file="${fullPath}">${injected}</ssi-include>`;
+	});
+
+	// Garbage collect any SSI no longer present in the page
+	for (const key in LINKS) {
+		if (LINKS[key].type === 'SSI' && !filesToWatch.includes(key)) {
+			delete LINKS[key];
+		}
+	}
+
+	return ret;
+}
+
+/** WebSocket opened: announce what we watch and request SSI bodies. */
+function onConnectionOpen() {
 	if (socket?.readyState !== WebSocket.OPEN) return;
 
-	// Send current file path to server for initial sync
-	socket.send(location.pathname);
+	// Tell server which files we care about (HTML, CSS, SSI)
+	socket.send(JSON.stringify({ command: 'newLinks', links: LINKS }));
 
-	console.log("%cArdaLive %cconnected", "color: #9b94ff", "color: #80fc03");
+	// Ask server to send SSI file contents we don’t have yet
+	for (const url in LINKS) {
+		if (LINKS[url].type === 'SSI') {
+			socket.send(JSON.stringify({ command: 'getContent', url }));
+		}
+	}
+
+	// Lightweight keep-alive; server may also implement real ping/pong
+	if (pingInterval) clearInterval(pingInterval);
+	pingInterval = setInterval(() => {
+		if (socket?.readyState === WebSocket.OPEN) socket.send('PING');
+	}, 30000);
+
+	console.log("%cArdaLive %cconnected", "color:#9b94ff", "color:#80fc03");
 }
 
-/**
- * WebSocket: Incoming message from server.
- * @param {MessageEvent} event 
- */
-function handleServerMessage(event) {
-	// First message after connect = handshake hash
-	if (!initialHash) {
-		initialHash = event.data;
+/** Apply updates from the server (HTML diffs, CSS swaps, SSI content). */
+function onServerMessage(event) {
+	if (event.data === "PONG") return; // ignore keep-alive
 
-		// Setup ping every 30s to keep the connection alive
-		if (pingInterval) clearInterval(pingInterval);
-		pingInterval = setInterval(() => {
-			if (socket?.readyState !== WebSocket.OPEN) return;
-			socket.send('PING');
-		}, 30000);
+	const updatePacket = JSON.parse(event.data);
+	const change = LINKS[updatePacket.file];
+	if (!change) return;
 
+	if (change.type === 'ME') {
+		// Full page HTML diff (expand SSI before morphing)
+		const htmlData = loadSSI(updatePacket.data);
+		const newDoc = new DOMParser().parseFromString(htmlData, "text/html");
+		morphdom(document.body, newDoc.body);
 		return;
 	}
 
-	// Ignore keep-alive replies
-	if (event.data === "PONG") return;
+	if (change.type === 'STYLE') {
+		// Hot-swap stylesheet by pointing href to a blob
+		const blobUrl = URL.createObjectURL(new Blob([updatePacket.data], { type: 'text/css' }));
+		change.element.addEventListener('load', () => {
+			setTimeout(() => URL.revokeObjectURL(blobUrl), 1000); // free memory after parse
+		}, { once: true });
+		change.element.href = blobUrl;
+		return;
+	}
 
-	// Parse update from server
-	const updatePacket = JSON.parse(event.data);
-
-	if (location.pathname === updatePacket.file) {
-		// HTML update → morph into current DOM body
-		const newDoc = new DOMParser().parseFromString(updatePacket.data, "text/html");
-		morphdom(document.body, newDoc.body);
-	} else {
-		// CSS update → match and hot-swap the correct stylesheet
-		const targetHref = location.origin + updatePacket.file;
-
-		for (const sheet of document.styleSheets) {
-			const node = sheet.ownerNode;
-
-			if (node._href === targetHref || (node.tagName === 'LINK' && node.href === targetHref)) {
-				node._href = targetHref; // Remember original identity for future matches
-
-				const blobUrl = URL.createObjectURL(new Blob([updatePacket.data], { type: 'text/css' }));
-
-				node.addEventListener('load', () => {
-					// Revoke blob URL after load to free memory
-					setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-				}, { once: true });
-
-				node.href = blobUrl; // Trigger browser to re-parse CSS
-				break;
-			}
-		}
+	if (change.type === 'SSI') {
+		// Refill each matching invisible host with the latest HTML
+		const hosts = document.querySelectorAll(`ssi-include[file="${updatePacket.file}"]`);
+		for (const host of hosts) host.innerHTML = updatePacket.data;
+		change.data = updatePacket.data; // cache for initial paint on reload
 	}
 }
 
-/**
- * WebSocket: Connection error.
- * @param {Event} err 
- */
-function handleServerError(err) {
+/** Log connection errors (non-fatal; page will keep working without live updates). */
+function onConnectionError(err) {
 	console.error("%cArdaLive %cconnection error: %c" + err,
-		"color: #9b94ff", "color: #fc0303ff", "color: #ca0000ff");
+		"color:#9b94ff", "color:#fc0303ff", "color:#ca0000ff");
 }
 
-/**
- * WebSocket: Connection closed.
- */
-function handleServerClose(e) {
+/** Cleanup on close. Reconnect logic is optional and not included. */
+function onConnectionClose() {
 	if (pingInterval) clearInterval(pingInterval);
 	socket = null;
-	initialHash = null;
-
-	console.warn("%cArdaLive %cdisconnected", "color: #9b94ff", "color: #fc0303ff");
+	console.warn("%cArdaLive %cdisconnected", "color:#9b94ff", "color:#fc0303ff");
 }
+
 
 /* --------------------------------------------------------------------------
    Morphdom Library (Bundled)

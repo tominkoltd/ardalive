@@ -46,6 +46,7 @@ flist a {
 	border-radius: 5px;
 	color: #eee;
 	text-decoration: none;
+	margin-left: 35px;
 }
 
 flist a:hover {
@@ -62,4 +63,51 @@ flist a::before {
 	content: "";
 	background-image: url(/img/file.svg);
 	background-size: contain;
+}
+
+flist div {
+	position: relative;
+	display: block;
+	text-align: left;
+	text-indent: 40px;
+	padding-top: 10px;
+	padding-bottom: 10px;
+	cursor: pointer;
+	border-radius: 5px;
+	color: #eee;
+	text-decoration: none;
+	margin-top: 10px;
+}
+
+flist div+div {
+	margin-top: 0px;
+}
+
+flist div::before {
+	position: absolute;
+	width: 30px;
+	height: 30px;
+	left: 5px;
+	top: 45%;
+	transform: translateY(-50%);
+	content: "";
+	background-image: url(/img/folder.svg);
+	background-size: contain;
+}
+
+flist div[scheme] {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+flist div[scheme]::after {
+	position: absolute;
+	display: block;
+	content: attr(scheme);
+	text-transform: uppercase;
+	font-size: 7px;
+	font-weight: bold;
+	color: #3f3c0f;
+	left: -30px;
+	bottom: 5px;
 }

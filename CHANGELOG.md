@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2025-09-08
+### Fixed
+- **Windows compatibility**: resolved path handling issues for static file loading (extension now works on both Windows and Linux without hacks).
+
+---
+
 ## [1.0.0] - 2025-08-09
 ### Added
 - **HTML live preview** — updates `<body>` content instantly using morphdom (no page reload).
@@ -18,4 +24,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.2.0]: https://github.com/tominkoltd/ardalive/releases/tag/v1.2.0  
 [1.0.0]: https://github.com/tominkoltd/ardalive/releases/tag/v1.0.0
