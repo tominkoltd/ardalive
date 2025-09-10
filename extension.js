@@ -158,11 +158,12 @@ async function activate(context) {
 
 			if (msg['command'] == 'newLinks') {
 				for (const lnk in msg.links) {
-					let linkUrl=lnk.split("/")
-					let wkrSpace=linkUrl[1]
-					linkUrl=lnk.substring(wkrSpace.length+2)
+					let linkUrl=decodeURIComponent(lnk).split("/")
+					linkUrl.shift()
+					let wkrSpace=linkUrl.shift()
+					linkUrl=linkUrl.join("/")
 					const fwrkSp=FILES.find(a=>(a.name==wkrSpace))
-					let realPath=fwrkSp.path+"/"+linkUrl
+					let realPath=fwrkSp.path+(isWindows?"/":"")+linkUrl
 
 					if (isWindows) {
 						realPath=realPath.replaceAll("/", "\\")
@@ -230,6 +231,10 @@ async function activate(context) {
 		let referer = req.headers['referer'] || req.headers['referrer'] || null;
 		let url = decodeURIComponent(req.url);
 
+		if (referer) {
+			referer=decodeURIComponent(referer);
+		}
+
 		if (referer && referer.startsWith(ADDR_HTTP)) {
 			referer = referer.substring(ADDR_HTTP.length)
 		}
@@ -252,7 +257,6 @@ async function activate(context) {
 				}
 			}
 		}
-
 
 		let realPath=extPath
 		let baseUrl=url
@@ -280,20 +284,21 @@ async function activate(context) {
 			const wksp=workspaces.find(a=>(a.name==currentWorkspace))
 			if (wksp && wksp.uri.scheme === 'file') {
 				realPath=wksp.uri.path
-				baseUrl=baseUrl.substring(currentWorkspace.length+1)
+				baseUrl=baseUrl.substring(currentWorkspace.length+2)
 			} else {
 				currentWorkspace=null
 			}
 		}
 
 		if (isWindows) {
-			realPath+=(baseUrl.replaceAll("/", "\\"))
+			realPath+="/"+baseUrl
 			if (realPath[0]=="/") {
 				realPath=realPath.substring(1)
 			}
 		} else {
 			realPath+=baseUrl
 		}
+
 
 		
 		// For HTML: inject client script

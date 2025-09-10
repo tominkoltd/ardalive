@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2025-09-10
+### Fixed
+- **Path handling**: applied `urldecode` for special characters in file/folder names.  
+- **Windows compatibility**: added extra `/` for static paths (Linux adds automatically).
+
+---
+
 ## [1.2.0] - 2025-09-08
 ### Fixed
 - **Windows compatibility**: resolved path handling issues for static file loading (extension now works on both Windows and Linux without hacks).
@@ -20,9 +27,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Local HTTP + WebSocket server** — auto-starts when VS Code is opened.
 - Status bar indicator showing server state and active connections.
 - Initial settings support: `ardaLive.port` for preferred preview port.
-- MIT license and morphdom attribution.
-
----
-
-[1.2.0]: https://github.com/tominkoltd/ardalive/releases/tag/v1.2.0  
-[1.0.0]: https://github.com/tominkoltd/ardalive/releases/tag/v1.0.0
+- MIT lice
