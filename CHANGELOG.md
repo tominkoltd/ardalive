@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] - 2026-02-17
+### Fixed
+- **Windows / file-not-recognised crash**: `newLinks` handler crashed with a null dereference when the workspace name extracted from the URL was not present in the internal file list (e.g. workspaces with no discoverable files were silently skipped). Guard now checked before any property access.
+- **Path separator missing on macOS/Linux (newLinks)**: workspace path and relative file path were concatenated without a `/` separator, producing paths like `/Users/…/projectstyles/main.css` that never matched the VS Code document path — live CSS and HTML updates were silently dropped.
+- **Path separator missing on macOS/Linux (HTTP server)**: same root cause in the HTTP request handler; `baseUrl` was stripped of its leading `/` by an off-by-one offset (`+2` → now `+1`), so files were resolved to wrong paths and served as 404.
+- **Private property access**: `file._fsPath` replaced with the public `file.fsPath` in the file-watcher map.
+
+---
+
 ## [1.2.1] - 2025-09-10
 ### Fixed
 - **Path handling**: applied `urldecode` for special characters in file/folder names.  

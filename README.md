@@ -56,7 +56,8 @@ You can change the preview port in settings:
 - CSS updates work **only** for `<link rel="stylesheet">` tags pointing to local files.
 - Inline `<style>` tags in `<head>` are not updated (planned for a future release).
 - Runs on `localhost` only — no remote connections.
-- If your HTML has multiple `<body>` tags (please don’t 😏), only the first is updated.
+- If your HTML has multiple `<body>` tags (please don't 😏), only the first is updated.
+- Works on macOS, Linux, and Windows.
 
 ---
 
@@ -70,7 +71,7 @@ You can change the preview port in settings:
 
 ## 📜 License
 
-- **ArdaLive** © 2025 Thomas Webb / Tominko Ltd — [MIT License](LICENSE)
+- **ArdaLive** © 2025–2026 Thomas Webb / Tominko Ltd — [MIT License](LICENSE)
 - Includes **morphdom** © 2014-2023 Patrick Steele-Idem — MIT License
 
 ---

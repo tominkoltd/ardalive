@@ -1,14 +1,26 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * 
+ * Version: 1.2.2
+ *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
- * 
+ *
  * This is the server-side part of the ArdaLive VS Code extension.
  * It serves HTML/CSS/JS files over HTTP and pushes live changes
  * via WebSockets to connected browsers.
- * 
+ *
  * The goal: near-instant in-place updates of HTML and CSS with zero reloads.
+ *
+ * Changes in 1.2.2:
+ *  - Fixed crash in newLinks handler when workspace not found in FILES
+ *    (null dereference before the guard check — affected files outside
+ *    workspaces with no discoverable files).
+ *  - Fixed missing path separator on macOS/Linux in newLinks path
+ *    construction (was: fwrkSp.path + "" + linkUrl; now always uses "/").
+ *  - Fixed missing path separator on macOS/Linux in HTTP server path
+ *    construction (baseUrl substring offset +2 → +1 to preserve leading "/").
+ *  - Fixed private _fsPath property access in fileWatcher (now uses
+ *    public file.fsPath).
  */
 
 const vscode = require('vscode');
@@ -158,21 +170,24 @@ async function activate(context) {
 
 			if (msg['command'] == 'newLinks') {
 				for (const lnk in msg.links) {
+					// Strip leading empty segment, extract workspace name, keep the rest
 					let linkUrl=decodeURIComponent(lnk).split("/")
 					linkUrl.shift()
 					let wkrSpace=linkUrl.shift()
 					linkUrl=linkUrl.join("/")
+					// Guard: workspace may be absent from FILES if it had no
+					// discoverable files (fileWatcher skips empty workspaces)
 					const fwrkSp=FILES.find(a=>(a.name==wkrSpace))
-					let realPath=fwrkSp.path+(isWindows?"/":"")+linkUrl
-
-					if (isWindows) {
-						realPath=realPath.replaceAll("/", "\\")
-						if (realPath[0]=="\\") {
-							realPath=realPath.substring(1)
-						}
-					}
-
 					if (fwrkSp) {
+						// Always add "/" — on Windows the replaceAll below converts
+						// forward slashes to backslashes, so this works cross-platform
+						let realPath=fwrkSp.path+"/"+linkUrl
+						if (isWindows) {
+							realPath=realPath.replaceAll("/", "\\")
+							if (realPath[0]=="\\") {
+								realPath=realPath.substring(1)
+							}
+						}
 						CLIENTS[hash].files[realPath]=msg.links[lnk]
 					}
 				}
@@ -284,14 +299,18 @@ async function activate(context) {
 			const wksp=workspaces.find(a=>(a.name==currentWorkspace))
 			if (wksp && wksp.uri.scheme === 'file') {
 				realPath=wksp.uri.path
-				baseUrl=baseUrl.substring(currentWorkspace.length+2)
+				// +1 skips only the leading "/" of the URL, leaving baseUrl
+				// as "/relative/path" so the join below always has a separator
+				baseUrl=baseUrl.substring(currentWorkspace.length+1)
 			} else {
 				currentWorkspace=null
 			}
 		}
 
+		// baseUrl is either the full URL (static assets, starts with "/")
+		// or the workspace-relative path (also starts with "/")
 		if (isWindows) {
-			realPath+="/"+baseUrl
+			realPath+=baseUrl
 			if (realPath[0]=="/") {
 				realPath=realPath.substring(1)
 			}
@@ -394,7 +413,7 @@ async function fileWatcher() {
 
 			files = files.map((file) => ({
 				name: vscode.workspace.asRelativePath(file.fsPath, false),
-				fsPath: file._fsPath,
+				fsPath: file.fsPath,
 				path: file.path
 			}));
 
