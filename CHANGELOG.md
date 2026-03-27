@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.7] - 2026-03-27
+### Fixed
+- **Live preview broken in multi-root workspaces**: `.code-workspace` URIs with trailing slashes caused the registered file path (`/project//file.html`) to never match `doc.fileName` (`/project/file.html`). Trailing slashes are now explicitly stripped before path concatenation.
+- **Root-relative paths returning 404**: links like `<link href="/user.css">` or `<img src="/img/logo.png">` were not resolved against the workspace root when a referer was present. Both file serving and live-update registration now correctly handle root-relative URLs.
+- **CSS flicker on hot-swap**: replaced the `href` swap approach with insert-new-then-remove-old so the old stylesheet stays active until the new one is fully painted.
+- **Unsaved CSS lost when HTML is edited**: morphdom was resetting `<link rel="stylesheet">` hrefs back to the disk path (losing the in-memory blob URL). Stylesheet `<link>` elements are now excluded from morphdom patching.
+- **Images flickering/disappearing on HTML edit**: morphdom was re-fetching unchanged images. Images with an unchanged `src` are now skipped by morphdom.
+
+---
+
 ## [1.2.6] - 2026-03-27
 ### Fixed
 - **Live preview broken in multi-root workspaces**: `.code-workspace` files store folder URIs with trailing slashes (e.g. `"/home/user/project/"`). Using `uri.path` preserved that trailing slash, causing double-slash paths (`/project//file.html`) that never matched `doc.fileName` during the `onDidChangeTextDocument` lookup — so live updates were silently dropped. Switched to `uri.fsPath` which is always normalised (no trailing slash, correct OS separators).

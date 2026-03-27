@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.2.6
+ * Version: 1.2.7
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -168,6 +168,16 @@ async function activate(context) {
 			}
 
 			if (msg['command'] == 'newLinks') {
+				// First pass: find which workspace this client belongs to,
+				// needed to resolve root-relative paths like /user.css
+				let clientWorkspace=null
+				for (const lnk in msg.links) {
+					const parts=decodeURIComponent(lnk).split("/")
+					parts.shift()
+					const maybeWs=parts.shift()
+					const fwrkSp=FILES.find(a=>(a.name==maybeWs))
+					if (fwrkSp) { clientWorkspace=fwrkSp; break }
+				}
 				for (const lnk in msg.links) {
 					// Strip leading empty segment, extract workspace name, keep the rest
 					let linkUrl=decodeURIComponent(lnk).split("/")
@@ -176,11 +186,17 @@ async function activate(context) {
 					linkUrl=linkUrl.join("/")
 					// Guard: workspace may be absent from FILES if it had no
 					// discoverable files (fileWatcher skips empty workspaces)
-					const fwrkSp=FILES.find(a=>(a.name==wkrSpace))
+					let fwrkSp=FILES.find(a=>(a.name==wkrSpace))
+					if (!fwrkSp && clientWorkspace) {
+						// Root-relative path (e.g. /user.css, /img/icon.svg):
+						// resolve against the client's workspace
+						fwrkSp=clientWorkspace
+						linkUrl=wkrSpace+(linkUrl?'/'+linkUrl:'')
+					}
 					if (fwrkSp) {
 						// Always add "/" — on Windows the replaceAll below converts
 						// forward slashes to backslashes, so this works cross-platform
-						let realPath=fwrkSp.path+"/"+linkUrl
+						let realPath=fwrkSp.path.replace(/[/\\]+$/, '')+"/"+linkUrl
 						if (isWindows) {
 							realPath=realPath.replaceAll("/", "\\")
 							if (realPath[0]=="\\") {
@@ -307,9 +323,13 @@ async function activate(context) {
 			const wksp=workspaces.find(a=>(a.name==currentWorkspace))
 			if (wksp && wksp.uri.scheme === 'file') {
 				realPath=wksp.uri.path
-				// +1 skips only the leading "/" of the URL, leaving baseUrl
-				// as "/relative/path" so the join below always has a separator
-				baseUrl=baseUrl.substring(currentWorkspace.length+1)
+				// Only strip the workspace prefix when the URL actually contains it.
+				// Root-relative URLs (e.g. /user.css, /img/icon.svg) are kept as-is
+				// so they resolve correctly against the workspace root.
+				const wsPrefix='/'+currentWorkspace
+				if (baseUrl===wsPrefix || baseUrl.startsWith(wsPrefix+'/')) {
+					baseUrl=baseUrl.substring(currentWorkspace.length+1)
+				}
 			} else {
 				currentWorkspace=null
 			}

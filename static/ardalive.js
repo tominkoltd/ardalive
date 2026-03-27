@@ -110,6 +110,17 @@ function onConnectionOpen() {
 	console.log("%cArdaLive %cconnected", "color:#9b94ff", "color:#80fc03");
 }
 
+// morphdom options shared across all morphdom calls:
+// - Skip <img> elements whose src hasn't changed (prevents re-fetch/flicker)
+// - Skip <link rel="stylesheet"> elements (ArdaLive manages these via blob URLs;
+//   morphdom would otherwise reset them back to the disk path, losing unsaved CSS edits)
+const morphOpts = {
+	onBeforeElUpdated(fromEl, toEl) {
+		if (fromEl.tagName === 'IMG' && fromEl.getAttribute('src') === toEl.getAttribute('src')) return false
+		if (fromEl.tagName === 'LINK' && fromEl.rel === 'stylesheet') return false
+	}
+}
+
 /** Apply updates from the server (HTML diffs, CSS swaps, SSI content). */
 function onServerMessage(event) {
 	if (event.data === "PONG") return; // ignore keep-alive
@@ -124,19 +135,26 @@ function onServerMessage(event) {
 		const newDoc = new DOMParser().parseFromString(htmlData, "text/html");
 		// Also morph <head> when present (handles inline <style> changes)
 		if (/<head\b/i.test(updatePacket.data)) {
-			morphdom(document.head, newDoc.head);
+			morphdom(document.head, newDoc.head, morphOpts);
 		}
-		morphdom(document.body, newDoc.body);
+		morphdom(document.body, newDoc.body, morphOpts);
 		return;
 	}
 
 	if (change.type === 'STYLE') {
-		// Hot-swap stylesheet by pointing href to a blob
+		// Insert a new <link> alongside the old one, then remove the old one only
+		// after the new sheet has fully loaded — eliminates the flash of unstyled content.
 		const blobUrl = URL.createObjectURL(new Blob([updatePacket.data], { type: 'text/css' }));
-		change.element.addEventListener('load', () => {
-			setTimeout(() => URL.revokeObjectURL(blobUrl), 1000); // free memory after parse
+		const oldEl = change.element;
+		const newEl = document.createElement('link');
+		newEl.rel = 'stylesheet';
+		newEl.href = blobUrl;
+		newEl.addEventListener('load', () => {
+			oldEl.remove();
+			setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 		}, { once: true });
-		change.element.href = blobUrl;
+		oldEl.parentNode.insertBefore(newEl, oldEl.nextSibling);
+		change.element = newEl;
 		return;
 	}
 
