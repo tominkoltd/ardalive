@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.2.3
+ * Version: 1.2.5
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -294,6 +294,15 @@ async function activate(context) {
 			return res.end(script);
 		}
 
+		// Serve injected list script (ws_port needed for reloadList)
+		if (url === "/_list.js") {
+			let script = fs.readFileSync(path.join(extPath, 'list.js'), 'utf8');
+			script = `const ws_port=${PORT_WS}\n` + script;
+			res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+			res.setHeader('Content-Length', Buffer.byteLength(script, 'utf8'));
+			return res.end(script);
+		}
+
 		if (currentWorkspace) {
 			const wksp=workspaces.find(a=>(a.name==currentWorkspace))
 			if (wksp && wksp.uri.scheme === 'file') {
@@ -435,6 +444,12 @@ async function fileWatcher() {
 			})
 		}
 		FILES=[...folders]
+		for (const clHash in CLIENTS) {
+			const cl = CLIENTS[clHash]
+			if (cl && cl.socket && cl.socket.readyState === 1) {
+				cl.socket.send(JSON.stringify({ command: 'reloadList' }))
+			}
+		}
 	} finally {
 		fchWK=false
 	}

@@ -1,6 +1,8 @@
 window.onload = () => {
 	loadList()
+	connectWS()
 }
+
 async function loadList() {
 	const workspaces = await (await fetch("/fl.json")).json()
 	if (workspaces.length == 0) {
@@ -24,4 +26,15 @@ async function loadList() {
 			cont.appendChild(fileLink)
 		}
 	}
+}
+
+function connectWS() {
+	const ws = new WebSocket(`ws://127.0.0.1:${ws_port}`)
+	ws.onmessage = (event) => {
+		try {
+			const msg = JSON.parse(event.data)
+			if (msg.command === 'reloadList') loadList()
+		} catch(e) {}
+	}
+	ws.onclose = () => setTimeout(connectWS, 2000)
 }

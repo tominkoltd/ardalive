@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.5] - 2026-03-27
+### Fixed
+- **Multi-root workspace file list not auto-refreshing**: in workspaces with multiple folders, the file list in the preview index page was only fetched once on load and never updated when files were added, removed, or changed. The list page now connects to the WebSocket server and re-fetches the file list automatically whenever the server rescans the workspace.
+
+---
+
 ## [1.2.3] - 2026-03-27
 ### Fixed
 - **Inline `<style>` in `<head>` not updating live**: changes to CSS inside `<style>` tags in the document `<head>` were silently ignored — only `<body>` content was transmitted over WebSocket. Now both `<head>` and `<body>` are extracted and sent, and the client morphs `document.head` alongside `document.body` so inline header styles hot-update without a page reload.
