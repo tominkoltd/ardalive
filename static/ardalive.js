@@ -122,6 +122,10 @@ function onServerMessage(event) {
 		// Full page HTML diff (expand SSI before morphing)
 		const htmlData = loadSSI(updatePacket.data);
 		const newDoc = new DOMParser().parseFromString(htmlData, "text/html");
+		// Also morph <head> when present (handles inline <style> changes)
+		if (/<head\b/i.test(updatePacket.data)) {
+			morphdom(document.head, newDoc.head);
+		}
 		morphdom(document.body, newDoc.body);
 		return;
 	}

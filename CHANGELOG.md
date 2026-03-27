@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.3] - 2026-03-27
+### Fixed
+- **Inline `<style>` in `<head>` not updating live**: changes to CSS inside `<style>` tags in the document `<head>` were silently ignored — only `<body>` content was transmitted over WebSocket. Now both `<head>` and `<body>` are extracted and sent, and the client morphs `document.head` alongside `document.body` so inline header styles hot-update without a page reload.
+
+---
+
 ## [1.2.2] - 2026-02-17
 ### Fixed
 - **Windows / file-not-recognised crash**: `newLinks` handler crashed with a null dereference when the workspace name extracted from the URL was not present in the internal file list (e.g. workspaces with no discoverable files were silently skipped). Guard now checked before any property access.

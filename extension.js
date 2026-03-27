@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.2.2
+ * Version: 1.2.3
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -11,16 +11,11 @@
  *
  * The goal: near-instant in-place updates of HTML and CSS with zero reloads.
  *
- * Changes in 1.2.2:
- *  - Fixed crash in newLinks handler when workspace not found in FILES
- *    (null dereference before the guard check — affected files outside
- *    workspaces with no discoverable files).
- *  - Fixed missing path separator on macOS/Linux in newLinks path
- *    construction (was: fwrkSp.path + "" + linkUrl; now always uses "/").
- *  - Fixed missing path separator on macOS/Linux in HTTP server path
- *    construction (baseUrl substring offset +2 → +1 to preserve leading "/").
- *  - Fixed private _fsPath property access in fileWatcher (now uses
- *    public file.fsPath).
+ * Changes in 1.2.3:
+ *  - Live updates now also apply to inline <style> tags in <head>.
+ *    Previously only <body> changes were sent over WebSocket; now both
+ *    <head> and <body> are extracted and transmitted so CSS in the header
+ *    is hot-updated without a page reload.
  */
 
 const vscode = require('vscode');
@@ -124,9 +119,13 @@ async function activate(context) {
 		if (doc.languageId !== 'html' && doc.languageId !== 'css') return;
 
 		let content = doc.getText();
-		// For HTML, send only <body>…</body> content
+		// For HTML, send <head> (for inline styles) + <body> content
 		if (doc.languageId === 'html') {
-			content = content.replace(/^.*?(<body\b[^>]*>[\s\S]*?<\/body\s*>).*$/si, "$1");
+			const headMatch = content.match(/<head\b[^>]*>[\s\S]*?<\/head\s*>/si);
+			const bodyMatch = content.match(/<body\b[^>]*>[\s\S]*?<\/body\s*>/si);
+			if (headMatch || bodyMatch) {
+				content = (headMatch ? headMatch[0] : '') + (bodyMatch ? bodyMatch[0] : '');
+			}
 		}
 
 		for (const clHash in CLIENTS) {
