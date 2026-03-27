@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.2.5
+ * Version: 1.2.6
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -434,7 +434,7 @@ async function fileWatcher() {
 
 			folders.push({
 				name: folder.name,
-				path: folder.uri.path,
+				path: folder.uri.fsPath,
 				files: files
 			})
 		}

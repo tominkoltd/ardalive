@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.6] - 2026-03-27
+### Fixed
+- **Live preview broken in multi-root workspaces**: `.code-workspace` files store folder URIs with trailing slashes (e.g. `"/home/user/project/"`). Using `uri.path` preserved that trailing slash, causing double-slash paths (`/project//file.html`) that never matched `doc.fileName` during the `onDidChangeTextDocument` lookup — so live updates were silently dropped. Switched to `uri.fsPath` which is always normalised (no trailing slash, correct OS separators).
+
+---
+
 ## [1.2.5] - 2026-03-27
 ### Fixed
 - **Multi-root workspace file list not auto-refreshing**: in workspaces with multiple folders, the file list in the preview index page was only fetched once on load and never updated when files were added, removed, or changed. The list page now connects to the WebSocket server and re-fetches the file list automatically whenever the server rescans the workspace.
