@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.8] - 2026-03-28
+### Fixed
+- **CSS background-image disappearing on hot-swap**: relative and root-relative `url(...)` paths inside linked CSS files (e.g. `url(img/favicon.svg)` or `url(/img/favicon.svg)`) were broken when the stylesheet was loaded as a blob URL, because blob URLs have no meaningful base path. All relative and root-relative paths are now rewritten to absolute URLs before the blob is created, so `::before`/`::after` backgrounds, fonts, and other asset references survive every live update.
+
+---
+
 ## [1.2.7] - 2026-03-27
 ### Fixed
 - **Live preview broken in multi-root workspaces**: `.code-workspace` URIs with trailing slashes caused the registered file path (`/project//file.html`) to never match `doc.fileName` (`/project/file.html`). Trailing slashes are now explicitly stripped before path concatenation.

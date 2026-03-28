@@ -144,7 +144,19 @@ function onServerMessage(event) {
 	if (change.type === 'STYLE') {
 		// Insert a new <link> alongside the old one, then remove the old one only
 		// after the new sheet has fully loaded — eliminates the flash of unstyled content.
-		const blobUrl = URL.createObjectURL(new Blob([updatePacket.data], { type: 'text/css' }));
+		//
+		// Rewrite relative url(...) references to absolute before creating the blob,
+		// because blob URLs have no base path so relative URLs (e.g. url(img/favicon.svg))
+		// would fail to resolve and background-images/fonts would disappear.
+		const cssBase = new URL(updatePacket.file, location.href).href.replace(/[^/]+$/, '');
+		const resolvedCss = updatePacket.data.replace(
+			/url\(\s*(['"]?)([^'")\s]+)\1\s*\)/gi,
+			(match, quote, path) => {
+				if (/^(?:data:|blob:|https?:|\/\/)/.test(path)) return match;
+				return `url(${quote}${new URL(path, cssBase).href}${quote})`;
+			}
+		);
+		const blobUrl = URL.createObjectURL(new Blob([resolvedCss], { type: 'text/css' }));
 		const oldEl = change.element;
 		const newEl = document.createElement('link');
 		newEl.rel = 'stylesheet';
