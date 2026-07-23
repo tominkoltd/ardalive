@@ -27,72 +27,140 @@ h2 {
 flist {
 	position: relative;
 	display: block;
-	width: 500px;
+	width: 600px;
+	max-width: calc(100vw - 40px);
 	left: 50%;
 	transform: translateX(-50%);
 	padding: 0;
 	margin: 0;
 	margin-bottom: 20px;
+	text-align: left;
 }
+
+/* ---- folder rows (workspace roots and subfolders) ---- */
+
+flist summary {
+	position: relative;
+	display: block;
+	padding: 9px 8px 9px 62px;
+	cursor: pointer;
+	border-radius: 5px;
+	color: #eee;
+	list-style: none;
+	user-select: none;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+flist summary::-webkit-details-marker {
+	display: none;
+}
+
+flist summary:hover {
+	background-color: rgb(119, 65, 26);
+}
+
+/* folder icon */
+flist summary::before {
+	position: absolute;
+	width: 26px;
+	height: 26px;
+	left: 28px;
+	top: 50%;
+	transform: translateY(-50%);
+	content: "";
+	background-image: url(/img/folder.svg);
+	background-size: contain;
+	background-repeat: no-repeat;
+}
+
+/* expand/collapse caret */
+flist summary::after {
+	position: absolute;
+	left: 10px;
+	top: 50%;
+	content: "\25B8";
+	transform: translateY(-50%);
+	transition: transform 0.15s ease;
+	color: #b9a389;
+	font-size: 13px;
+}
+
+flist details[open] > summary::after {
+	transform: translateY(-50%) rotate(90deg);
+}
+
+flist details.wsroot > summary {
+	margin-top: 10px;
+	font-weight: bold;
+}
+
+/* nesting indentation */
+flist .children {
+	margin-left: 28px;
+}
+
+/* ---- file rows ---- */
 
 flist a {
 	position: relative;
 	display: block;
-	text-align: left;
-	text-indent: 35px;
-	padding-top: 10px;
-	padding-bottom: 10px;
+	padding: 8px 8px 8px 62px;
 	cursor: pointer;
 	border-radius: 5px;
 	color: #eee;
 	text-decoration: none;
-	margin-left: 35px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+flist a::before {
+	position: absolute;
+	width: 22px;
+	height: 22px;
+	left: 30px;
+	top: 50%;
+	transform: translateY(-50%);
+	content: "";
+	background-image: url(/img/file.svg);
+	background-size: contain;
+	background-repeat: no-repeat;
 }
 
 flist a:hover {
 	background-color: rgb(119, 65, 26);
 }
 
-flist a::before {
-	position: absolute;
-	width: 24px;
-	height: 24px;
-	left: 5px;
-	top: 50%;
-	transform: translateY(-50%);
-	content: "";
-	background-image: url(/img/file.svg);
-	background-size: contain;
+/* file currently focused in VS Code */
+flist a.active {
+	background-color: rgba(119, 65, 26, 0.55);
 }
+
+/* ---- non-local workspaces (not browsable) ---- */
 
 flist div {
 	position: relative;
 	display: block;
-	text-align: left;
-	text-indent: 40px;
-	padding-top: 10px;
-	padding-bottom: 10px;
-	cursor: pointer;
+	padding: 9px 8px 9px 62px;
 	border-radius: 5px;
 	color: #eee;
-	text-decoration: none;
 	margin-top: 10px;
-}
-
-flist div+div {
-	margin-top: 0px;
+	font-weight: bold;
 }
 
 flist div::before {
 	position: absolute;
-	width: 30px;
-	height: 30px;
-	left: 5px;
-	top: 45%;
+	width: 26px;
+	height: 26px;
+	left: 28px;
+	top: 50%;
 	transform: translateY(-50%);
 	content: "";
 	background-image: url(/img/folder.svg);
 	background-size: contain;
+	background-repeat: no-repeat;
 }
 
 flist div[scheme] {
@@ -105,9 +173,9 @@ flist div[scheme]::after {
 	display: block;
 	content: attr(scheme);
 	text-transform: uppercase;
-	font-size: 7px;
+	font-size: 8px;
 	font-weight: bold;
-	color: #3f3c0f;
-	left: -30px;
-	bottom: 5px;
+	color: #cbb26a;
+	left: 62px;
+	bottom: 0px;
 }

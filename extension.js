@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.2.7
+ * Version: 1.3.0
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -11,11 +11,14 @@
  *
  * The goal: near-instant in-place updates of HTML and CSS with zero reloads.
  *
- * Changes in 1.2.3:
- *  - Live updates now also apply to inline <style> tags in <head>.
- *    Previously only <body> changes were sent over WebSocket; now both
- *    <head> and <body> are extracted and transmitted so CSS in the header
- *    is hot-updated without a page reload.
+ * Changes in 1.3.0:
+ *  - File list page is now a collapsible tree view; /fl.json includes the
+ *    active editor file and clients are notified when it changes.
+ *  - Unsaved (dirty) document content is pushed to a client as soon as it
+ *    registers its links, so a page reload no longer reverts to the
+ *    on-disk version until the next keystroke.
+ *  - Requests are contained to the workspace root (no ../ traversal).
+ *  - Workspace folders added/removed at runtime are now watched.
  */
 
 const vscode = require('vscode');
@@ -36,6 +39,7 @@ const extPath = path.join(__dirname, 'static');
 let FILES=[];
 let fchTM=null
 let fchWK=false
+let lastListJSON=null
 
 // MIME types map for HTTP server
 const MIME = {
@@ -89,7 +93,8 @@ const findCssLinksRe = /<link\b[^>]*\bhref\s*=\s*["']([^"']+\.css(?:\?[^"']*)?)[
  * @param {vscode.ExtensionContext} context
  */
 async function activate(context) {
-	await fileWatcherInit(context)
+	await fileWatcherInit()
+	context.subscriptions.push({ dispose: () => { for (const w of WATCHERS) w.dispose(); WATCHERS=[] } });
 	const cfg = vscode.workspace.getConfiguration('ardaLive');
 	const preferredPort = cfg.get('port', 8242);
 
@@ -118,15 +123,7 @@ async function activate(context) {
 
 		if (doc.languageId !== 'html' && doc.languageId !== 'css') return;
 
-		let content = doc.getText();
-		// For HTML, send <head> (for inline styles) + <body> content
-		if (doc.languageId === 'html') {
-			const headMatch = content.match(/<head\b[^>]*>[\s\S]*?<\/head\s*>/si);
-			const bodyMatch = content.match(/<body\b[^>]*>[\s\S]*?<\/body\s*>/si);
-			if (headMatch || bodyMatch) {
-				content = (headMatch ? headMatch[0] : '') + (bodyMatch ? bodyMatch[0] : '');
-			}
-		}
+		const content = extractLiveContent(doc);
 
 		for (const clHash in CLIENTS) {
 			const cl = CLIENTS[clHash]
@@ -139,6 +136,21 @@ async function activate(context) {
 		}
 
 	});
+
+	// Tell list pages which file is active in the editor so the tree
+	// can expand the closest path to it
+	vscode.window.onDidChangeActiveTextEditor(() => {
+		const active = getActiveFile();
+		for (const clHash in CLIENTS) {
+			const cl = CLIENTS[clHash]
+			if (cl && cl.socket && cl.socket.readyState === 1) {
+				cl.socket.send(JSON.stringify({ command: 'activeFile', active }))
+			}
+		}
+	}, null, context.subscriptions);
+
+	// Re-init watchers when workspace folders are added/removed at runtime
+	vscode.workspace.onDidChangeWorkspaceFolders(() => fileWatcherInit(), null, context.subscriptions);
 
 	/* ---------------------------
 	   WS server
@@ -184,8 +196,8 @@ async function activate(context) {
 					linkUrl.shift()
 					let wkrSpace=linkUrl.shift()
 					linkUrl=linkUrl.join("/")
-					// Guard: workspace may be absent from FILES if it had no
-					// discoverable files (fileWatcher skips empty workspaces)
+					// Guard: the first URL segment may not be a workspace name
+					// at all (root-relative links like /user.css)
 					let fwrkSp=FILES.find(a=>(a.name==wkrSpace))
 					if (!fwrkSp && clientWorkspace) {
 						// Root-relative path (e.g. /user.css, /img/icon.svg):
@@ -204,6 +216,21 @@ async function activate(context) {
 							}
 						}
 						CLIENTS[hash].files[realPath]=msg.links[lnk]
+					}
+				}
+				// Push unsaved (dirty) editor content for the files just
+				// registered — a freshly (re)loaded page got the on-disk
+				// version and would otherwise show stale content until the
+				// next keystroke.
+				for (const doc of vscode.workspace.textDocuments) {
+					if (!doc.isDirty) continue
+					if (doc.languageId !== 'html' && doc.languageId !== 'css') continue
+					const reg = CLIENTS[hash].files[doc.fileName]
+					if (reg && ws.readyState === 1) {
+						ws.send(JSON.stringify({
+							file: reg.fileName,
+							data: extractLiveContent(doc)
+						}))
 					}
 				}
 			} else if (msg['command'] == 'getContent') {
@@ -289,13 +316,17 @@ async function activate(context) {
 		}
 
 		let realPath=extPath
+		let rootDir=extPath
 		let baseUrl=url
 
 
 
 		// File list
-		if (url === "/fl.json" && referer=="/") {
-			const fileList = JSON.stringify((await getHTMLfiles()));
+		if (url === "/fl.json" && (referer=="/" || referer=="/init.html")) {
+			const fileList = JSON.stringify({
+				workspaces: await getHTMLfiles(),
+				active: getActiveFile()
+			});
 			res.setHeader('Content-Type', 'application/json; charset=utf-8');
 			res.setHeader('Content-Length', Buffer.byteLength(fileList, 'utf8'));
 			return res.end(fileList);
@@ -323,6 +354,7 @@ async function activate(context) {
 			const wksp=workspaces.find(a=>(a.name==currentWorkspace))
 			if (wksp && wksp.uri.scheme === 'file') {
 				realPath=wksp.uri.path
+				rootDir=wksp.uri.fsPath
 				// Only strip the workspace prefix when the URL actually contains it.
 				// Root-relative URLs (e.g. /user.css, /img/icon.svg) are kept as-is
 				// so they resolve correctly against the workspace root.
@@ -346,8 +378,15 @@ async function activate(context) {
 			realPath+=baseUrl
 		}
 
+		// Decoded URLs may contain ../ sequences — refuse anything that
+		// resolves outside the workspace (or the extension's static dir)
+		const resolvedPath = path.resolve(realPath)
+		const relToRoot = path.relative(path.resolve(rootDir), resolvedPath)
+		if (relToRoot === '..' || relToRoot.startsWith('..'+path.sep) || path.isAbsolute(relToRoot)) {
+			res.statusCode = 403;
+			return res.end('Forbidden');
+		}
 
-		
 		// For HTML: inject client script
 		if (currentWorkspace && (url.endsWith(".html") || url.endsWith(".htm") || url.endsWith(".shtml"))) {
 			if (!fs.existsSync(realPath)) {
@@ -385,7 +424,8 @@ function deactivate() { }
 --------------------------- */
 async function getHTMLfiles() {
 	return FILES.map(folder => ({
-		...folder,
+		name: folder.name,
+		scheme: folder.scheme,
 		files: folder.files.filter(file =>
 			file.name.endsWith('.html') ||
 			file.name.endsWith('.htm')  ||
@@ -394,16 +434,50 @@ async function getHTMLfiles() {
 	}));
 }
 
+/**
+ * Content pushed to clients for a document: full text for CSS,
+ * <head> (inline styles) + <body> for HTML.
+ */
+function extractLiveContent(doc) {
+	let content = doc.getText();
+	if (doc.languageId === 'html') {
+		const headMatch = content.match(/<head\b[^>]*>[\s\S]*?<\/head\s*>/si);
+		const bodyMatch = content.match(/<body\b[^>]*>[\s\S]*?<\/body\s*>/si);
+		if (headMatch || bodyMatch) {
+			content = (headMatch ? headMatch[0] : '') + (bodyMatch ? bodyMatch[0] : '');
+		}
+	}
+	return content;
+}
 
+/**
+ * The file currently focused in the editor, as { workspace, file }
+ * (workspace-relative), or null when none / not part of a workspace.
+ */
+function getActiveFile() {
+	const ed = vscode.window.activeTextEditor
+	if (!ed || ed.document.uri.scheme !== 'file') return null
+	const wksp = vscode.workspace.getWorkspaceFolder(ed.document.uri)
+	if (!wksp) return null
+	return {
+		workspace: wksp.name,
+		file: vscode.workspace.asRelativePath(ed.document.uri, false)
+	}
+}
 
-async function fileWatcherInit(ctx) {
+let WATCHERS=[]
+async function fileWatcherInit() {
 	await fileWatcher()
+	// Recreated wholesale on workspace-folder changes
+	for (const w of WATCHERS) w.dispose()
+	WATCHERS=[]
 	for (const WSpace of FILES) {
+		if (WSpace.scheme) continue
 		const watcher=vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(WSpace.path, '**/*'));
 		watcher.onDidCreate(() => fileWatcher());
 		watcher.onDidDelete(() => fileWatcher());
 		watcher.onDidChange(() => fileWatcher());
-		ctx.subscriptions.push(watcher);		
+		WATCHERS.push(watcher);
 	}
 }
 
@@ -424,6 +498,7 @@ async function fileWatcher() {
 				folders.push({
 					name: folder.name,
 					path: folder.uri.path,
+					scheme: folder.uri.scheme,
 					files: []
 				})
 				continue
@@ -435,9 +510,6 @@ async function fileWatcher() {
 				),
 				'**/{node_modules,.git,.vscode,dist,out,build,coverage}/**'
 			);
-			if (files.length == 0) {
-				continue
-			}
 
 			files = files.map((file) => ({
 				name: vscode.workspace.asRelativePath(file.fsPath, false),
@@ -464,10 +536,16 @@ async function fileWatcher() {
 			})
 		}
 		FILES=[...folders]
-		for (const clHash in CLIENTS) {
-			const cl = CLIENTS[clHash]
-			if (cl && cl.socket && cl.socket.readyState === 1) {
-				cl.socket.send(JSON.stringify({ command: 'reloadList' }))
+		// Only tell list pages to re-fetch when the list actually changed —
+		// plain saves fire the watcher too, but don't alter the file list
+		const listJSON = JSON.stringify(folders.map(f => ({ name: f.name, files: f.files.map(x => x.name) })))
+		if (listJSON !== lastListJSON) {
+			lastListJSON = listJSON
+			for (const clHash in CLIENTS) {
+				const cl = CLIENTS[clHash]
+				if (cl && cl.socket && cl.socket.readyState === 1) {
+					cl.socket.send(JSON.stringify({ command: 'reloadList' }))
+				}
 			}
 		}
 	} finally {

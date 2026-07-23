@@ -9,7 +9,11 @@
 
 let socket = null;        // Active WebSocket
 let pingInterval = null;  // Keep-alive timer
+let unloading = false;    // True while the page is being navigated away from
 const LINKS = Object.create(null); // Map: pathname -> { type, element?, data? }
+
+// Don't attempt reconnects while the page is going away
+window.addEventListener('pagehide', () => { unloading = true; });
 
 // SSI include matcher (valid forms only). No 's' flag; use [\s\S] for Safari.
 const SSIre = /<!--#include\s+virtual=(["'])([\s\S]*?)\1[\s\S]*?-->/gi;
@@ -24,10 +28,12 @@ window.addEventListener('load', init);
  *  - Open WebSocket to the local server
  */
 function init() {
-	// Expand SSI placeholders once so morphdom works on a stable tree
+	// Expand SSI placeholders once so morphdom works on a stable tree.
+	// childrenOnly: the parsed innerHTML has an attribute-less <body>, so a
+	// full morph would strip style/class/id set on the real <body> tag.
 	const firstPass = loadSSI(document.body.innerHTML);
 	const newDoc = new DOMParser().parseFromString(firstPass, "text/html");
-	morphdom(document.body, newDoc.body);
+	morphdom(document.body, newDoc.body, { ...morphOpts, childrenOnly: true });
 
 	// Track <link rel="stylesheet"> for hot CSS swaps
 	for (const st of document.querySelectorAll('link[rel="stylesheet"]')) {
@@ -39,6 +45,11 @@ function init() {
 	// Track the main document by pathname
 	LINKS[location.pathname] = { type: 'ME', fileName: location.pathname };
 
+	connect();
+}
+
+/** Open (or re-open) the WebSocket connection to the ArdaLive server. */
+function connect() {
 	// Build WS URL: ws/wss based on page protocol; handle file:// (no hostname)
 	const wsHost = location.hostname || '127.0.0.1';
 	socket = new WebSocket(`ws://${wsHost}:${ws_port}`);
@@ -184,11 +195,13 @@ function onConnectionError(err) {
 		"color:#9b94ff", "color:#fc0303ff", "color:#ca0000ff");
 }
 
-/** Cleanup on close. Reconnect logic is optional and not included. */
+/** Cleanup on close, then retry — links are re-announced in onConnectionOpen,
+ *  so live updates resume automatically (e.g. after a VS Code reload). */
 function onConnectionClose() {
 	if (pingInterval) clearInterval(pingInterval);
 	socket = null;
 	console.warn("%cArdaLive %cdisconnected", "color:#9b94ff", "color:#fc0303ff");
+	if (!unloading) setTimeout(connect, 2000);
 }
 
 
