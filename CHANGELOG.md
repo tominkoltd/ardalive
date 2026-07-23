@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-07-23
+### Changed
+- **morphdom replaced with [idiomorph](https://github.com/bigskysoftware/idiomorph) v0.7.4** for DOM patching. Idiomorph's id-set matching keeps stateful elements (playing videos, iframes, focused inputs) alive when surrounding id-less markup is inserted, removed or reordered — cases where morphdom would destroy and recreate nodes. Actively maintained (used by Turbo 8 and htmx) and smaller than the morphdom bundle it replaces.
+- **Preview page no longer fights user input**: while testing forms in the preview, a focused input keeps its typed value and focus/selection across live updates (`ignoreActiveValue` + `restoreFocus`).
+- **Stronger unsaved-CSS protection**: hot-swapped blob stylesheets are now guarded against all three failure modes during a morph — being reverted to the disk href, being removed, or having a duplicate disk-href `<link>` added alongside.
+- `<head>` is morphed with idiomorph's `head.style: 'morph'` so inline `<style>`, meta and script changes diff predictably like the rest of the document.
+
+### Docs
+- README refreshed: obsolete limitation ("inline `<style>` in `<head>` not updated" — done since 1.2.3) and completed roadmap items (inline style updates, `<head>` diffing) removed; new features (file tree, unsaved-content reloads, reconnect) documented; license attribution updated (idiomorph, 0BSD).
+
+---
+
 ## [1.3.1] - 2026-07-23
 ### Fixed
 - **Tree view layout broken**: the styling intended for the non-browsable workspace rows (`flist div`) also matched the tree's `.children` container divs, giving every nesting level a stray floating folder icon, bold text and an extra 62px of padding — deep folders drifted far to the right. Those rules are now scoped to `div[scheme]` only; nesting indents a clean 28px per level.

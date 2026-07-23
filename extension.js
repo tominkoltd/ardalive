@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.3.0
+ * Version: 1.4.0
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -10,6 +10,10 @@
  * via WebSockets to connected browsers.
  *
  * The goal: near-instant in-place updates of HTML and CSS with zero reloads.
+ *
+ * Changes in 1.4.0:
+ *  - Client now patches the DOM with idiomorph (replacing morphdom); see
+ *    static/ardalive.js for the integration details.
  *
  * Changes in 1.3.0:
  *  - File list page is now a collapsible tree view; /fl.json includes the
