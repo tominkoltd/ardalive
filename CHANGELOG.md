@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-07-23
+### Fixed
+- **Tree view layout broken**: the styling intended for the non-browsable workspace rows (`flist div`) also matched the tree's `.children` container divs, giving every nesting level a stray floating folder icon, bold text and an extra 62px of padding — deep folders drifted far to the right. Those rules are now scoped to `div[scheme]` only; nesting indents a clean 28px per level.
+
+---
+
 ## [1.3.0] - 2026-07-23
 ### Added
 - **Collapsible tree view for the file list**: the preview index page now shows workspaces, folders and subfolders as a proper tree instead of a flat list of full paths. All folders start collapsed; file rows show just the file name (full path on hover).

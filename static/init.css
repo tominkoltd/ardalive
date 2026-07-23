@@ -139,8 +139,10 @@ flist a.active {
 }
 
 /* ---- non-local workspaces (not browsable) ---- */
+/* NB: keep these scoped to [scheme] — plain "flist div" would also hit
+   the .children tree containers */
 
-flist div {
+flist div[scheme] {
 	position: relative;
 	display: block;
 	padding: 9px 8px 9px 62px;
@@ -148,9 +150,11 @@ flist div {
 	color: #eee;
 	margin-top: 10px;
 	font-weight: bold;
+	opacity: 0.5;
+	pointer-events: none;
 }
 
-flist div::before {
+flist div[scheme]::before {
 	position: absolute;
 	width: 26px;
 	height: 26px;
@@ -161,11 +165,6 @@ flist div::before {
 	background-image: url(/img/folder.svg);
 	background-size: contain;
 	background-repeat: no-repeat;
-}
-
-flist div[scheme] {
-	opacity: 0.5;
-	pointer-events: none;
 }
 
 flist div[scheme]::after {
