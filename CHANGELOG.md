@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.2] - 2026-09-25
+### Changed
+- **File list page is mobile aware**: it now declares a viewport, so under a phone-sized window or browser devtools device emulation it renders at device width instead of a shrunken desktop layout. The list is fluid up to 600px, rows are 44px tap targets with tighter icon spacing and shallower nesting on narrow screens, and hover highlighting is limited to devices that can hover (a tapped row no longer stays lit).
+
+---
+
+## [1.4.1] - 2026-09-25
+### Fixed
+- **File list went stale**: files created, renamed or deleted from inside VS Code did not appear on the preview index page (not even after a browser refresh) until VS Code was restarted. The index relied solely on the filesystem watcher; it is now also updated straight from the editor's own file events (`onDidCreateFiles`, `onDidRenameFiles`, `onDidDeleteFiles`) and on the first save of a new document ("Save As"), with a debounced full rescan reconciling afterwards. Folder renames re-key their contents in place.
+- **Watcher race on activation**: watchers were only installed after the initial workspace scan finished, so a file created during the scan was missed. They are now attached to the `WorkspaceFolder` objects (as the VS Code API recommends) before the scan starts.
+- **`/fl.json` refused without a Referer**: browsers with a strict referrer policy got a 404 for the file list. It is now served for any request without a workspace context.
+- **List page catches up on reconnect**: the index page re-fetches the list when its WebSocket (re)connects and when the tab becomes visible again, so a VS Code restart or a background tab no longer leaves it out of date. An older `/fl.json` response can no longer overwrite a newer one.
+- Live-update link registration no longer depends on the scan having completed: workspace names are resolved from `workspace.workspaceFolders` directly.
+
+### Changed
+- Saving a file no longer triggers a full workspace scan; only a change to a file the index does not know about does.
+
+---
+
 ## [1.4.0] - 2026-07-23
 ### Changed
 - **morphdom replaced with [idiomorph](https://github.com/bigskysoftware/idiomorph) v0.7.4** for DOM patching. Idiomorph's id-set matching keeps stateful elements (playing videos, iframes, focused inputs) alive when surrounding id-less markup is inserted, removed or reordered — cases where morphdom would destroy and recreate nodes. Actively maintained (used by Turbo 8 and htmx) and smaller than the morphdom bundle it replaces.

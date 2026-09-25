@@ -1,4 +1,14 @@
+*, *::before, *::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
 body {
+	margin: 0;
+	padding: 0 16px;
 	background-color: #333;
 	background-image: url(/img/bg.png);
 	text-align: center;
@@ -6,6 +16,7 @@ body {
 	font-size: 17px;
 	line-height: 17px;
 	color: #eee;
+	-webkit-tap-highlight-color: transparent;
 }
 
 .toplogo {
@@ -28,12 +39,9 @@ flist {
 	position: relative;
 	display: block;
 	width: 600px;
-	max-width: calc(100vw - 40px);
-	left: 50%;
-	transform: translateX(-50%);
+	max-width: 100%;
 	padding: 0;
-	margin: 0;
-	margin-bottom: 20px;
+	margin: 0 auto 20px;
 	text-align: left;
 }
 
@@ -57,7 +65,17 @@ flist summary::-webkit-details-marker {
 	display: none;
 }
 
-flist summary:hover {
+/* hover only where there is a pointer that can hover; on touch screens a
+   tapped row would otherwise stay highlighted */
+@media (hover: hover) {
+	flist summary:hover,
+	flist a:hover {
+		background-color: rgb(119, 65, 26);
+	}
+}
+
+flist summary:active,
+flist a:active {
 	background-color: rgb(119, 65, 26);
 }
 
@@ -129,10 +147,6 @@ flist a::before {
 	background-repeat: no-repeat;
 }
 
-flist a:hover {
-	background-color: rgb(119, 65, 26);
-}
-
 /* file currently focused in VS Code */
 flist a.active {
 	background-color: rgba(119, 65, 26, 0.55);
@@ -177,4 +191,55 @@ flist div[scheme]::after {
 	color: #cbb26a;
 	left: 62px;
 	bottom: 0px;
+}
+
+/* ---- phones and narrow devtools viewports ---- */
+
+@media (max-width: 640px) {
+	body {
+		padding: 0 12px;
+	}
+
+	.toplogo {
+		width: 80px;
+		margin-top: 14px;
+	}
+
+	h1 {
+		margin-bottom: 24px;
+	}
+
+	/* 44px tap targets, less left room for the icons */
+	flist summary,
+	flist a,
+	flist div[scheme] {
+		padding: 12px 8px 12px 46px;
+		min-height: 44px;
+	}
+
+	flist summary::before,
+	flist div[scheme]::before {
+		width: 22px;
+		height: 22px;
+		left: 18px;
+	}
+
+	flist summary::after {
+		left: 4px;
+	}
+
+	flist a::before {
+		width: 20px;
+		height: 20px;
+		left: 20px;
+	}
+
+	flist div[scheme]::after {
+		left: 46px;
+	}
+
+	/* shallower nesting so deep trees stay readable */
+	flist .children {
+		margin-left: 14px;
+	}
 }

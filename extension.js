@@ -1,6 +1,6 @@
 /**
  * ArdaLive - Live HTML & CSS Preview Server
- * Version: 1.4.0
+ * Version: 1.4.2
  *
  * Created by: Thomas Webb / Tominko Ltd.
  * License: MIT
@@ -10,6 +10,16 @@
  * via WebSockets to connected browsers.
  *
  * The goal: near-instant in-place updates of HTML and CSS with zero reloads.
+ *
+ * Changes in 1.4.1:
+ *  - File list no longer goes stale: files created, renamed, deleted or
+ *    saved-as inside the editor update the index immediately via the
+ *    workspace file events (onDidCreate/Delete/RenameFiles,
+ *    onDidSaveTextDocument), independent of the filesystem watcher.
+ *  - Watchers are attached to the WorkspaceFolder objects and installed
+ *    before the first scan, so nothing is missed while it runs.
+ *  - /fl.json is served whenever the request has no workspace context
+ *    (browsers with a strict referrer policy send no Referer at all).
  *
  * Changes in 1.4.0:
  *  - Client now patches the DOM with idiomorph (replacing morphdom); see
@@ -35,15 +45,18 @@ const net = require('net');
 const { pipeline } = require('stream');
 
 const isWindows=process.platform=='win32'
-const SEP=isWindows?"\\":"/"
 
 // Path to static assets bundled with extension
 const extPath = path.join(__dirname, 'static');
 
-let FILES=[];
-let fchTM=null
-let fchWK=false
-let lastListJSON=null
+let FILES=[];            // Per-workspace file index, see rescanFiles()
+let lastListJSON=null    // Last file list broadcast to list pages
+
+// What the index tracks; the regexes mirror the globs for incremental updates
+const INDEX_GLOB = '**/*.{htm,html,shtml,css,js,map,json,wasm,jpg,jpeg,gif,png,webp,avif,svg,svgz,ico,bmp,tiff,woff,woff2,ttf,otf,eot,mp3,ogg,wav,mp4,webm}'
+const INDEX_EXCLUDE = '**/{node_modules,.git,.vscode,dist,out,build,coverage}/**'
+const INDEX_EXT_RE = /\.(htm|html|shtml|css|js|map|json|wasm|jpe?g|gif|png|webp|avif|svgz?|ico|bmp|tiff|woff2?|ttf|otf|eot|mp3|ogg|wav|mp4|webm)$/i
+const INDEX_EXCLUDE_RE = /(^|[\\/])(node_modules|\.git|\.vscode|dist|out|build|coverage)[\\/]/
 
 // MIME types map for HTTP server
 const MIME = {
@@ -97,8 +110,11 @@ const findCssLinksRe = /<link\b[^>]*\bhref\s*=\s*["']([^"']+\.css(?:\?[^"']*)?)[
  * @param {vscode.ExtensionContext} context
  */
 async function activate(context) {
-	await fileWatcherInit()
+	// Watchers first, then the initial scan: a file created while the scan
+	// runs is then still picked up
+	watchersInit()
 	context.subscriptions.push({ dispose: () => { for (const w of WATCHERS) w.dispose(); WATCHERS=[] } });
+	await rescanFiles()
 	const cfg = vscode.workspace.getConfiguration('ardaLive');
 	const preferredPort = cfg.get('port', 8242);
 
@@ -144,17 +160,47 @@ async function activate(context) {
 	// Tell list pages which file is active in the editor so the tree
 	// can expand the closest path to it
 	vscode.window.onDidChangeActiveTextEditor(() => {
-		const active = getActiveFile();
-		for (const clHash in CLIENTS) {
-			const cl = CLIENTS[clHash]
-			if (cl && cl.socket && cl.socket.readyState === 1) {
-				cl.socket.send(JSON.stringify({ command: 'activeFile', active }))
-			}
+		broadcast({ command: 'activeFile', active: getActiveFile() })
+	}, null, context.subscriptions);
+
+	// Files created / renamed / deleted from inside the editor (explorer,
+	// refactorings, workspace edits). These fire reliably even when the
+	// filesystem watcher does not, so the index is patched right away and
+	// a full rescan reconciles afterwards.
+	vscode.workspace.onDidCreateFiles((e) => {
+		let changed = false
+		for (const uri of e.files) changed = indexAdd(uri) || changed
+		if (changed) publishList()
+		scheduleRescan()
+	}, null, context.subscriptions);
+
+	vscode.workspace.onDidDeleteFiles((e) => {
+		let changed = false
+		for (const uri of e.files) changed = indexRemove(uri) || changed
+		if (changed) publishList()
+		scheduleRescan()
+	}, null, context.subscriptions);
+
+	vscode.workspace.onDidRenameFiles((e) => {
+		let changed = false
+		for (const f of e.files) changed = indexRename(f.oldUri, f.newUri) || changed
+		if (changed) publishList()
+		scheduleRescan()
+	}, null, context.subscriptions);
+
+	// "Save As" of an untitled document is not a create event
+	vscode.workspace.onDidSaveTextDocument((doc) => {
+		if (indexAdd(doc.uri)) {
+			publishList()
+			scheduleRescan()
 		}
 	}, null, context.subscriptions);
 
 	// Re-init watchers when workspace folders are added/removed at runtime
-	vscode.workspace.onDidChangeWorkspaceFolders(() => fileWatcherInit(), null, context.subscriptions);
+	vscode.workspace.onDidChangeWorkspaceFolders(() => {
+		watchersInit()
+		scheduleRescan(0)
+	}, null, context.subscriptions);
 
 	/* ---------------------------
 	   WS server
@@ -191,7 +237,7 @@ async function activate(context) {
 					const parts=decodeURIComponent(lnk).split("/")
 					parts.shift()
 					const maybeWs=parts.shift()
-					const fwrkSp=FILES.find(a=>(a.name==maybeWs))
+					const fwrkSp=localWorkspace(maybeWs)
 					if (fwrkSp) { clientWorkspace=fwrkSp; break }
 				}
 				for (const lnk in msg.links) {
@@ -202,7 +248,7 @@ async function activate(context) {
 					linkUrl=linkUrl.join("/")
 					// Guard: the first URL segment may not be a workspace name
 					// at all (root-relative links like /user.css)
-					let fwrkSp=FILES.find(a=>(a.name==wkrSpace))
+					let fwrkSp=localWorkspace(wkrSpace)
 					if (!fwrkSp && clientWorkspace) {
 						// Root-relative path (e.g. /user.css, /img/icon.svg):
 						// resolve against the client's workspace
@@ -325,8 +371,9 @@ async function activate(context) {
 
 
 
-		// File list
-		if (url === "/fl.json" && (referer=="/" || referer=="/init.html")) {
+		// File list: any request without a workspace context (the list page
+		// itself, or a browser that sends no Referer at all)
+		if (url === "/fl.json" && !currentWorkspace) {
 			const fileList = JSON.stringify({
 				workspaces: await getHTMLfiles(),
 				active: getActiveFile()
@@ -470,34 +517,45 @@ function getActiveFile() {
 }
 
 let WATCHERS=[]
-async function fileWatcherInit() {
-	await fileWatcher()
-	// Recreated wholesale on workspace-folder changes
+
+/**
+ * One filesystem watcher per local workspace folder: catches changes made
+ * outside the editor (git checkout, build output, another application).
+ */
+function watchersInit() {
 	for (const w of WATCHERS) w.dispose()
 	WATCHERS=[]
-	for (const WSpace of FILES) {
-		if (WSpace.scheme) continue
-		const watcher=vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(WSpace.path, '**/*'));
-		watcher.onDidCreate(() => fileWatcher());
-		watcher.onDidDelete(() => fileWatcher());
-		watcher.onDidChange(() => fileWatcher());
+	for (const folder of vscode.workspace.workspaceFolders ?? []) {
+		if (folder.uri.scheme !== 'file') continue
+		const watcher=vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '**/*'));
+		watcher.onDidCreate((uri) => { if (indexAdd(uri)) publishList(); scheduleRescan() });
+		watcher.onDidDelete((uri) => { if (indexRemove(uri)) publishList(); scheduleRescan() });
+		// A change to a file the index doesn't know is a create that was missed
+		watcher.onDidChange((uri) => { if (indexAdd(uri)) { publishList(); scheduleRescan() } });
 		WATCHERS.push(watcher);
 	}
 }
 
-async function fileWatcher() {
-	if (fchTM) {
-		clearTimeout(fchTM)
-	}
-	if (fchWK) {
-		fchTM=setTimeout(fileWatcher, 500)
-		return
-	}
-	fchWK=true
+let scanTimer=null
+let scanning=false
+let scanAgain=false
+
+/** Debounced full rescan: a burst of file events collapses into one scan. */
+function scheduleRescan(delay=250) {
+	if (scanTimer) clearTimeout(scanTimer)
+	scanTimer=setTimeout(() => { scanTimer=null; rescanFiles() }, delay)
+}
+
+/**
+ * Rebuild FILES from a workspace search. This is the authoritative index;
+ * the index* helpers only keep it current between scans.
+ */
+async function rescanFiles() {
+	if (scanning) { scanAgain=true; return }
+	scanning=true
 	try {
 		const folders = []
-		const workspaces = vscode.workspace.workspaceFolders ?? []
-		for (const folder of workspaces) {
+		for (const folder of vscode.workspace.workspaceFolders ?? []) {
 			if (folder.uri.scheme !== 'file') {
 				folders.push({
 					name: folder.name,
@@ -507,56 +565,131 @@ async function fileWatcher() {
 				})
 				continue
 			}
-			let files = await vscode.workspace.findFiles(
-				new vscode.RelativePattern(
-					folder,
-					'**/*.{htm,html,shtml,css,js,map,json,wasm,jpg,jpeg,gif,png,webp,avif,svg,svgz,ico,bmp,tiff,woff,woff2,ttf,otf,eot,mp3,ogg,wav,mp4,webm}'
-				),
-				'**/{node_modules,.git,.vscode,dist,out,build,coverage}/**'
+			const found = await vscode.workspace.findFiles(
+				new vscode.RelativePattern(folder, INDEX_GLOB),
+				INDEX_EXCLUDE
 			);
-
-			files = files.map((file) => ({
-				name: vscode.workspace.asRelativePath(file.fsPath, false),
+			const files = found.map((file) => ({
+				name: vscode.workspace.asRelativePath(file, false),
 				fsPath: file.fsPath,
 				path: file.path
 			}));
-
-			files.sort((a, b) => {
-				const aHasFolder = a.name.includes(SEP);
-				const bHasFolder = b.name.includes(SEP);
-				if (aHasFolder !== bHasFolder) return aHasFolder - bHasFolder;
-				return a.name.localeCompare(b.name);
-			});
-
+			sortFiles(files)
 			folders.push({
 				name: folder.name,
 				path: folder.uri.fsPath,
 				files: files
 			})
 		}
-		if (folders.length > 0) {
-			folders.sort((a, b) => {
-				return a.name.localeCompare(b.name);
-			})
-		}
-		FILES=[...folders]
-		// Only tell list pages to re-fetch when the list actually changed —
-		// plain saves fire the watcher too, but don't alter the file list
-		const listJSON = JSON.stringify(folders.map(f => ({ name: f.name, files: f.files.map(x => x.name) })))
-		if (listJSON !== lastListJSON) {
-			lastListJSON = listJSON
-			for (const clHash in CLIENTS) {
-				const cl = CLIENTS[clHash]
-				if (cl && cl.socket && cl.socket.readyState === 1) {
-					cl.socket.send(JSON.stringify({ command: 'reloadList' }))
-				}
-			}
-		}
+		folders.sort((a, b) => a.name.localeCompare(b.name))
+		FILES=folders
+		publishList()
+	} catch (e) {
+		console.error('ArdaLive: workspace scan failed:', e)
 	} finally {
-		fchWK=false
+		scanning=false
+		if (scanAgain) { scanAgain=false; scheduleRescan(0) }
 	}
 }
 
+/** Top-level files first, then by name (asRelativePath always uses "/"). */
+function sortFiles(files) {
+	files.sort((a, b) => {
+		const aHasFolder = /[\\/]/.test(a.name);
+		const bHasFolder = /[\\/]/.test(b.name);
+		if (aHasFolder !== bHasFolder) return aHasFolder - bHasFolder;
+		return a.name.localeCompare(b.name);
+	});
+}
+
+/** Tell list pages to re-fetch, but only when the list actually changed. */
+function publishList() {
+	const listJSON = JSON.stringify(FILES.map(f => ({ name: f.name, files: f.files.map(x => x.name) })))
+	if (listJSON === lastListJSON) return
+	lastListJSON = listJSON
+	broadcast({ command: 'reloadList' })
+}
+
+function broadcast(msg) {
+	const data = JSON.stringify(msg)
+	for (const clHash in CLIENTS) {
+		const cl = CLIENTS[clHash]
+		if (cl && cl.socket && cl.socket.readyState === 1) cl.socket.send(data)
+	}
+}
+
+/** A local (file-scheme) workspace folder by name, as { name, path }. */
+function localWorkspace(name) {
+	const wf = (vscode.workspace.workspaceFolders ?? []).find(f => f.name === name && f.uri.scheme === 'file')
+	return wf ? { name: wf.name, path: wf.uri.fsPath } : null
+}
+
+/** The FILES entry for the workspace folder containing uri, if local. */
+function indexFolder(uri) {
+	if (!uri || uri.scheme !== 'file') return null
+	const wf = vscode.workspace.getWorkspaceFolder(uri)
+	if (!wf) return null
+	return FILES.find(f => f.name === wf.name && !f.scheme) || null
+}
+
+/** True when a workspace-relative path is one the index tracks. */
+function indexTracks(rel) {
+	return INDEX_EXT_RE.test(rel) && !INDEX_EXCLUDE_RE.test(rel)
+}
+
+/** Add one file. False when not tracked, not a plain file, or already known. */
+function indexAdd(uri) {
+	const folder = indexFolder(uri)
+	if (!folder) return false
+	const rel = vscode.workspace.asRelativePath(uri, false)
+	if (!indexTracks(rel)) return false
+	if (folder.files.some(f => f.fsPath === uri.fsPath)) return false
+	try { if (!fs.statSync(uri.fsPath).isFile()) return false } catch (e) { return false }
+	folder.files.push({ name: rel, fsPath: uri.fsPath, path: uri.path })
+	sortFiles(folder.files)
+	return true
+}
+
+/** Remove a file, or everything under a folder. */
+function indexRemove(uri) {
+	const folder = indexFolder(uri)
+	if (!folder) return false
+	const root = uri.fsPath.replace(/[\\/]+$/, '')
+	const before = folder.files.length
+	folder.files = folder.files.filter(f => f.fsPath !== root && !f.fsPath.startsWith(root + path.sep))
+	return folder.files.length !== before
+}
+
+/** Re-key a renamed file, or a folder and its contents. */
+function indexRename(oldUri, newUri) {
+	const folder = indexFolder(oldUri)
+	if (!folder || indexFolder(newUri) !== folder) {
+		// Moved out of, into or between workspace folders: delete + create
+		const removed = indexRemove(oldUri)
+		const added = indexAdd(newUri)
+		return removed || added
+	}
+	const oldRoot = oldUri.fsPath.replace(/[\\/]+$/, '')
+	const newRoot = newUri.fsPath.replace(/[\\/]+$/, '')
+	let changed = false
+	const kept = []
+	for (const f of folder.files) {
+		let rest = null
+		if (f.fsPath === oldRoot) rest = ''
+		else if (f.fsPath.startsWith(oldRoot + path.sep)) rest = f.fsPath.slice(oldRoot.length)
+		if (rest === null) { kept.push(f); continue }
+		const uri = vscode.Uri.file(newRoot + rest)
+		const name = vscode.workspace.asRelativePath(uri, false)
+		changed = true
+		if (!indexTracks(name)) continue   // e.g. page.html -> page.txt
+		kept.push({ name, fsPath: uri.fsPath, path: uri.path })
+	}
+	folder.files = kept
+	sortFiles(folder.files)
+	// e.g. page.txt -> page.html: not indexed before, tracked now
+	if (indexAdd(newUri)) changed = true
+	return changed
+}
 
 function randomHash(len = 8) {
 	return crypto.randomBytes(Math.ceil(len / 2))

@@ -9,11 +9,17 @@
 const STATE_KEY = 'ardalive-tree-v1'
 let treeState = loadState()   // Map: "workspace/dir/subdir" -> 1 (open)
 let lastActiveKey = null      // Last active-file key we auto-expanded for
+let loadSeq = 0               // Drops an older /fl.json response that lands last
 
 window.onload = () => {
 	loadList()
 	connectWS()
 }
+
+// A background tab may have missed a reloadList while hidden
+document.addEventListener('visibilitychange', () => {
+	if (document.visibilityState === 'visible') loadList()
+})
 
 function loadState() {
 	try {
@@ -30,12 +36,14 @@ function saveState() {
 }
 
 async function loadList() {
+	const seq = ++loadSeq
 	let resp
 	try {
 		resp = await (await fetch("/fl.json")).json()
 	} catch (e) {
 		return
 	}
+	if (seq !== loadSeq) return   // superseded by a newer request
 	const workspaces = Array.isArray(resp) ? resp : (resp.workspaces || [])
 	const active = Array.isArray(resp) ? null : resp.active
 
@@ -162,6 +170,9 @@ function applyActive(active) {
 
 function connectWS() {
 	const ws = new WebSocket(`ws://127.0.0.1:${ws_port}`)
+	// (Re)connected: the list may have changed while there was no socket
+	// (VS Code restart, extension reload)
+	ws.onopen = () => loadList()
 	ws.onmessage = (event) => {
 		try {
 			const msg = JSON.parse(event.data)
